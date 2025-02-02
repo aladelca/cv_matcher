@@ -1,7 +1,10 @@
 from django.shortcuts import render, redirect
 from .forms import DocumentForm
 from .models import Document
+from transformer import *
 import pandas as pd
+import pickle
+
 # Create your views here.
 
 def index(request):
@@ -37,3 +40,55 @@ def list_cv(request):
         )
     params = {"html_table": html_table}
     return render(request, 'list_cv.html', params)
+
+def cv_specific(request, cv_id):
+    ### Load CV based on ID
+    filename = Document.objects.values_list(
+        "document",
+        flat = True
+    ).get(id = cv_id)
+    
+    clean_text = get_text_from_document(filename)
+    clean_text = prepare_text(clean_text)
+
+    ### Load vectorizer
+
+    vectorizer = pickle.load(
+        open(
+            "lab2/matcher/static/data/nuestro_vectorizer.pickle",
+            "rb"
+        )
+    )
+
+    ### Load predefined job matrix
+
+    jobs = pickle.load(
+        open(
+            "lab2/matcher/static/data/puestos.pickle",
+            "rb"
+        )
+    )
+    jobs = prepare_matrix(jobs, "PUESTO")
+
+    ### Vectorize
+
+    text_vectorized = vectorize_text(vectorizer, [clean_text])
+
+    jobs_vectorized = vectorize_text(vectorizer, jobs)
+
+    ### Get similarity
+
+    ranking = get_similarity(text_vectorized, jobs_vectorized, 10)
+
+    ## Top
+
+    ranking_match = ranking.to_html(
+        formatters={
+            "RANKING": "{:,.2%}".format
+        },
+        index = False,
+        border = 1,
+        classes = "table table-stripped table-hover",
+    )
+    params = {'html_match': ranking_match}
+    return render(request, "match.html", params)
