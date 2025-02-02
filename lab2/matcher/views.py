@@ -1,7 +1,14 @@
 from django.shortcuts import render, redirect
 from .forms import DocumentForm
 from .models import Document
-from transformer import *
+from .transformer import (
+    get_text_from_document,
+    get_pdf,
+    prepare_text,
+    prepare_matrix,
+    vectorize_text,
+    get_similarity
+)
 import pandas as pd
 import pickle
 
@@ -28,9 +35,19 @@ def list_cv(request):
         df = df[["id", "document", "uploaded_at"]]
         df["id"] = df["id"].astype(str)
         df["uploaded_at"] = df["uploaded_at"].dt.strftime('%Y-%m-%d')
-    except:
+    except Exception:
         df = pd.DataFrame(columns = ["id", "document", "uploaded_at"])
     df.rename(columns = {"id": "ID", "document": "CV", "uploaded_at": "date"}, inplace = True)
+
+    def add_url(data):
+        output = "<a href='"
+        output = output + data
+        output = output + "'>"
+        output = output + data
+        output = output + "</a"
+        return output
+    
+    df["ID"] = df["ID"].apply(add_url)
 
     html_table = df.to_html(
         escape = False,
@@ -48,14 +65,18 @@ def cv_specific(request, cv_id):
         flat = True
     ).get(id = cv_id)
     
-    clean_text = get_text_from_document(filename)
+    if ".docx" in  filename:
+        clean_text = get_text_from_document(filename)
+    elif ".pdf" in filename:
+        clean_text = get_pdf(filename)
+        
     clean_text = prepare_text(clean_text)
 
     ### Load vectorizer
 
     vectorizer = pickle.load(
         open(
-            "lab2/matcher/static/data/nuestro_vectorizer.pickle",
+            "matcher/static/data/nuestro_vectorizer.pickle",
             "rb"
         )
     )
@@ -64,7 +85,7 @@ def cv_specific(request, cv_id):
 
     jobs = pickle.load(
         open(
-            "lab2/matcher/static/data/puestos.pickle",
+            "matcher/static/data/puestos.pickle",
             "rb"
         )
     )
@@ -74,11 +95,11 @@ def cv_specific(request, cv_id):
 
     text_vectorized = vectorize_text(vectorizer, [clean_text])
 
-    jobs_vectorized = vectorize_text(vectorizer, jobs)
+    jobs_vectorized = vectorize_text(vectorizer, jobs["PUESTO"])
 
     ### Get similarity
 
-    ranking = get_similarity(text_vectorized, jobs_vectorized, 10)
+    ranking = get_similarity(text_vectorized, jobs_vectorized, jobs, 10)
 
     ## Top
 
@@ -91,4 +112,5 @@ def cv_specific(request, cv_id):
         classes = "table table-stripped table-hover",
     )
     params = {'html_match': ranking_match}
+
     return render(request, "match.html", params)
